@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hust-public-crawler"
+version = "0.1.0"
+description = "Polite filesystem-only crawler for public HUST websites"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "PyYAML==6.0.2",
+    "Scrapy==2.17.0",
+    "scrapy-playwright==0.0.48",
+    "warcio==1.8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.12.10",
+]
+
+[project.scripts]
+hust-crawl = "hust_crawler.runtime:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hust_crawler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"

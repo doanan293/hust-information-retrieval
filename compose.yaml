@@ -1,0 +1,13 @@
+services:
+  crawler:
+    build: .
+    working_dir: /app
+    user: "${CRAWLER_UID:-1000}:${CRAWLER_GID:-1000}"
+    volumes:
+      - ./data:/app/data
+      - ./docs/domain_active.txt:/app/docs/domain_active.txt:ro
+      - ./config:/app/config:ro
+    environment:
+      CRAWLER_CONTACT: ${CRAWLER_CONTACT:-replace-with-operator-contact@example.invalid}
+    init: true
+    stop_grace_period: 2m

@@ -1,0 +1,2 @@
+# Add exact allowlisted hostnames only after preflight confirms JavaScript is required.
+
