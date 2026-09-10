@@ -1,0 +1,10 @@
+# Moi dong 1 truy van. Dong bat dau bang '#' hoac dong trong se bi bo qua.
+# Co the dung cu phap QueryParser cua Lucene: AND, OR, NOT, "cum tu", dau*, field:tu
+# Neu muon tu dat ma truy van: <id><TAB><noi dung>
+
+inverted index
+BM25 ranking
+analyzer AND stemming
+"full-text search"
+tach tu tieng Viet
+Q99	elasticsearch OR solr

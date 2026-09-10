@@ -1,0 +1,11 @@
+Xử lý ngôn ngữ tự nhiên cho tiếng Việt gặp thách thức lớn ở khâu tách từ,
+vì một từ có thể gồm nhiều âm tiết viết rời nhau. Ví dụ "học máy" và
+"trí tuệ nhân tạo" đều là từ ghép, không thể tách theo từng âm tiết.
+
+VnCoreNLP là bộ công cụ xử lý ngôn ngữ tự nhiên cho tiếng Việt, cung cấp
+tách từ, gán nhãn từ loại, nhận dạng thực thể và phân tích cú pháp. Bộ tách
+từ của VnCoreNLP dựa trên phương pháp học chuyển đổi theo luật.
+
+Apache Lucene có thể dùng bộ tách từ này để lập chỉ mục tài liệu tiếng Việt
+theo đơn vị từ thay vì âm tiết, nhờ đó truy vấn "học máy" không còn khớp
+nhầm với các tài liệu chỉ tình cờ chứa "máy" hay "học" riêng lẻ.

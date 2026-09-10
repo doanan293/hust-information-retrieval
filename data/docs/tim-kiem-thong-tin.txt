@@ -1,0 +1,15 @@
+Tìm kiếm thông tin là lĩnh vực nghiên cứu cách tổ chức, lưu trữ và truy xuất
+tài liệu sao cho đáp ứng nhanh và đúng nhu cầu của người dùng.
+
+Một hệ thống tìm kiếm điển hình gồm hai giai đoạn. Giai đoạn lập chỉ mục phân
+tích văn bản thành các từ, rồi xây dựng chỉ mục ngược ánh xạ mỗi từ tới danh
+sách tài liệu chứa nó. Giai đoạn truy vấn phân tích câu hỏi của người dùng bằng
+cùng bộ phân tích, tra cứu chỉ mục ngược và xếp hạng tài liệu theo độ liên quan.
+
+Hàm xếp hạng phổ biến hiện nay là BM25, một mô hình xác suất thưởng cho tần suất
+từ khoá nhưng giảm dần, đồng thời phạt tài liệu quá dài. Chất lượng xếp hạng
+được đánh giá bằng các độ đo như độ chính xác, độ bao phủ và trung bình độ chính
+xác.
+
+Apache Lucene là thư viện tìm kiếm toàn văn viết bằng Java, làm nền cho Apache
+Solr và Elasticsearch.
