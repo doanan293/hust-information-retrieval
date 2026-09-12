@@ -54,6 +54,28 @@ def test_url_upsert_keeps_one_authoritative_disposition(tmp_path: Path) -> None:
     state.close()
 
 
+def test_late_discovery_cannot_downgrade_completed_success(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    state.complete_url(
+        {"url": "https://a.test/article", "status": "extracted", "http_status": 200},
+        article={"url": "https://a.test/article", "title": "Keep me"},
+    )
+
+    state.upsert_url(
+        {
+            "url": "https://a.test/article",
+            "status": "skipped",
+            "reason": "host_out_of_scope",
+        }
+    )
+
+    record = next(state.iter_url_records())
+    assert record["status"] == "extracted"
+    assert record["http_status"] == 200
+    assert state.is_complete("https://a.test/article")
+    state.close()
+
+
 def test_crawl_export_lists_only_successful_urls_in_text_file(tmp_path: Path) -> None:
     state = open_state(tmp_path)
     records = (

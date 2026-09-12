@@ -265,6 +265,18 @@ class CrawlState:
         return merged
 
     def merge_url(self, record: dict[str, object], *, completed: bool = False) -> dict[str, object]:
+        existing_row = self.connection.execute(
+            "SELECT payload, status, completed FROM url_records WHERE url = ?",
+            (str(record["url"]),),
+        ).fetchone()
+        if (
+            existing_row
+            and existing_row[2]
+            and existing_row[1] in {"extracted", "file_saved"}
+            and record.get("status") not in {"extracted", "file_saved"}
+        ):
+            return json.loads(existing_row[0])
+
         merged = self._merged_record(record)
         url = str(merged["url"])
         payload = json.dumps(merged, ensure_ascii=False)
