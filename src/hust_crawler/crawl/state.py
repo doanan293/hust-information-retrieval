@@ -11,6 +11,7 @@ from typing import Any, Iterator, Literal, TYPE_CHECKING
 from collections.abc import Mapping
 
 from .link_policy import classify_link
+from .recovery import validate_policy_migration
 
 if TYPE_CHECKING:
     from .assets import AssetRole
@@ -111,6 +112,7 @@ class CrawlState:
         semantic_config: dict[str, object],
         runtime_config: dict[str, object],
         resume: bool = False,
+        allow_policy_migration: bool = False,
     ) -> "CrawlState":
         root.mkdir(parents=True, exist_ok=True)
         input_sha256 = hashlib.sha256(input_path.read_bytes()).hexdigest()
@@ -148,7 +150,24 @@ class CrawlState:
                 saved_semantic = normalize_legacy_semantic_config(manifest.get("semantic_config", {}))
                 effective_semantic = normalize_legacy_semantic_config(semantic_config)
                 if saved_semantic != effective_semantic:
-                    raise ValueError("resume semantic configuration does not match saved crawl")
+                    if not allow_policy_migration:
+                        raise ValueError("resume semantic configuration does not match saved crawl")
+                    validate_policy_migration(saved_semantic, effective_semantic)
+                    migrations = list(manifest.get("policy_migrations", []))
+                    if not any(
+                        entry.get("to_revision") == effective_semantic.get("access_policy_revision")
+                        for entry in migrations
+                        if isinstance(entry, dict)
+                    ):
+                        migrations.append(
+                            {
+                                "from_revision": saved_semantic.get("access_policy_revision", 1),
+                                "to_revision": effective_semantic["access_policy_revision"],
+                                "timestamp": time.time(),
+                            }
+                        )
+                    manifest["policy_migrations"] = migrations
+                    manifest["semantic_config"] = semantic_config
                 history = manifest.get("runtime_history", [])
                 if not history or history[-1] != runtime_config:
                     history.append(runtime_config)

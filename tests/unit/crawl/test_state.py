@@ -102,6 +102,60 @@ def test_resume_rejects_semantic_change_but_accepts_runtime_change(tmp_path: Pat
     resumed.close()
 
 
+def test_resume_policy_migration_requires_explicit_opt_in(tmp_path: Path) -> None:
+    legacy = {
+        "crawl_strategy": "hybrid-unified",
+        "assets": "content-only",
+        "robots_txt_obey": True,
+        "user_agent_name": "HUSTPublicCrawler",
+        "user_agent_version": "1.0",
+    }
+    current = {
+        **legacy,
+        "robots_txt_obey": False,
+        "access_policy_revision": 2,
+        "browser_user_agent": "Mozilla/5.0 Chrome/140.0.0.0",
+    }
+    state = open_state(tmp_path, semantic_config=legacy)
+    state.close()
+    source = tmp_path / "output" / "input.txt"
+
+    with pytest.raises(ValueError, match="semantic configuration"):
+        CrawlState.open(
+            tmp_path / "output/state",
+            phase="crawl",
+            input_path=source,
+            semantic_config=current,
+            runtime_config={},
+            resume=True,
+        )
+
+    resumed = CrawlState.open(
+        tmp_path / "output/state",
+        phase="crawl",
+        input_path=source,
+        semantic_config=current,
+        runtime_config={},
+        resume=True,
+        allow_policy_migration=True,
+    )
+    assert resumed.manifest["semantic_config"] == current
+    assert resumed.manifest["policy_migrations"][0]["to_revision"] == 2
+    resumed.close()
+
+    resumed_again = CrawlState.open(
+        tmp_path / "output/state",
+        phase="crawl",
+        input_path=source,
+        semantic_config=current,
+        runtime_config={},
+        resume=True,
+        allow_policy_migration=True,
+    )
+    assert len(resumed_again.manifest["policy_migrations"]) == 1
+    resumed_again.close()
+
+
 def test_legacy_semantic_snapshot_drops_values_reclassified_as_runtime() -> None:
     saved = {
         "assets": "content-only",
