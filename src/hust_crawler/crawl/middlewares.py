@@ -210,6 +210,15 @@ class PlaywrightFallbackMiddleware:
             rendered=rendered,
         )
         if decision.outcome != "public":
+            if decision.use_playwright and not rendered:
+                meta = dict(request.meta)
+                hostname = (urlsplit(response.url).hostname or "").lower().rstrip(".")
+                meta.update({
+                    "playwright": True,
+                    "rendered": True,
+                    "download_slot": f"playwright:{hostname}",
+                })
+                return request.replace(meta=meta, dont_filter=True)
             raise IgnoreRequest(f"{decision.outcome}:{decision.reason or 'access_gate'}")
         if rendered:
             return response

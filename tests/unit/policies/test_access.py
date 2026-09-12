@@ -6,15 +6,32 @@ from hust_crawler.policies.access import classify_access, classify_page_gate
 @pytest.mark.parametrize(
     ("status", "html", "outcome"),
     [
-        (401, "", "login_required"),
-        (403, "", "login_required"),
+        (401, "<h1>Unauthorized</h1>", "access_denied"),
+        (403, "<h1>Forbidden</h1>", "access_denied"),
         (200, '<form action="/login"><input type="password"></form>', "login_required"),
         (200, '<div class="g-recaptcha"></div>', "captcha_blocked"),
     ],
 )
-def test_access_gates_are_terminal(status: int, html: str, outcome: str) -> None:
+def test_access_classification_distinguishes_denial_from_gates(
+    status: int, html: str, outcome: str
+) -> None:
     decision = classify_access(status=status, url="https://example.com/", html=html, rendered=False)
-    assert (decision.outcome, decision.use_playwright) == (outcome, False)
+    expected_playwright = outcome == "access_denied"
+    assert (decision.outcome, decision.use_playwright) == (outcome, expected_playwright)
+
+
+def test_rendered_http_denial_is_terminal() -> None:
+    decision = classify_access(
+        status=403,
+        url="https://example.com/",
+        html="<h1>Forbidden</h1>",
+        rendered=True,
+    )
+    assert (decision.outcome, decision.reason, decision.use_playwright) == (
+        "access_denied",
+        "http_403",
+        False,
+    )
 
 
 def test_public_shell_requests_browser_once() -> None:

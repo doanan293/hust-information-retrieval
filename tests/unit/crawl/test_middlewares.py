@@ -214,6 +214,38 @@ def test_html_shell_is_rescheduled_once_with_playwright() -> None:
     assert rerender.dont_filter is True
 
 
+def test_unrendered_http_denial_gets_one_browser_attempt() -> None:
+    request = Request("https://a.test/")
+    response = HtmlResponse(
+        request.url,
+        status=403,
+        headers={b"Content-Type": b"text/html"},
+        body=b"<h1>Forbidden</h1>",
+        request=request,
+        encoding="utf-8",
+    )
+    rerender = PlaywrightFallbackMiddleware().process_response(request, response)
+    assert rerender.meta["playwright"] is True
+    assert rerender.meta["rendered"] is True
+
+
+def test_rendered_http_denial_is_terminal() -> None:
+    request = Request(
+        "https://a.test/",
+        meta={"playwright": True, "rendered": True},
+    )
+    response = HtmlResponse(
+        request.url,
+        status=403,
+        headers={b"Content-Type": b"text/html"},
+        body=b"<h1>Forbidden</h1>",
+        request=request,
+        encoding="utf-8",
+    )
+    with pytest.raises(IgnoreRequest, match="access_denied:http_403"):
+        PlaywrightFallbackMiddleware().process_response(request, response)
+
+
 def test_captcha_response_is_terminal_instead_of_being_extracted() -> None:
     request = Request("https://a.test/article")
     response = HtmlResponse(
