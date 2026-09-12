@@ -71,7 +71,12 @@ class CrawlerConfig:
     max_response_bytes: int = 100 * 1024 * 1024
     user_agent_name: str = "HUSTPublicCrawler"
     user_agent_version: str = "1.0"
-    robots_txt_obey: bool = True
+    access_policy_revision: int = 2
+    browser_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+    )
+    robots_txt_obey: bool = False
     cookies_enabled: bool = False
     redirect_max_times: int = 20
     autothrottle_enabled: bool = True
@@ -108,6 +113,7 @@ class CrawlerConfig:
         validate_network_contact(contact)
         required = (
             "user_agent_name", "user_agent_version", "concurrent_requests",
+            "access_policy_revision", "browser_user_agent",
             "concurrent_per_host", "download_delay_seconds", "download_timeout_seconds",
             "max_response_bytes", "robots_txt_obey", "cookies_enabled", "redirect_max_times",
             "autothrottle_enabled", "autothrottle_target_concurrency", "throttle_start_seconds",
@@ -133,6 +139,8 @@ class CrawlerConfig:
             "hostnames": hostnames,
             "contact": contact,
             "user_agent_name": str(raw["user_agent_name"]), "user_agent_version": str(raw["user_agent_version"]),
+            "access_policy_revision": int(raw["access_policy_revision"]),
+            "browser_user_agent": str(raw["browser_user_agent"]),
             "concurrent_requests": int(raw["concurrent_requests"]), "concurrent_per_host": int(raw["concurrent_per_host"]),
             "playwright_max_pages": int(raw["playwright_max_pages"]), "download_delay_seconds": float(raw["download_delay_seconds"]),
             "throttle_start_seconds": float(raw["throttle_start_seconds"]), "throttle_max_seconds": float(raw["throttle_max_seconds"]),
@@ -148,7 +156,7 @@ class CrawlerConfig:
             "journal_batch_size": int(raw["journal_batch_size"]), "journal_flush_seconds": float(raw["journal_flush_seconds"]),
             "progress_interval_seconds": float(raw["progress_interval_seconds"]),
         }
-        positive = tuple(name for name in required if name not in {"user_agent_name", "user_agent_version", "robots_txt_obey", "cookies_enabled", "autothrottle_enabled", "assets", "retry_statuses"})
+        positive = tuple(name for name in required if name not in {"user_agent_name", "user_agent_version", "browser_user_agent", "robots_txt_obey", "cookies_enabled", "autothrottle_enabled", "assets", "retry_statuses"})
         for name in positive:
             if values[name] <= 0:
                 raise ValueError(f"{name} must be positive")

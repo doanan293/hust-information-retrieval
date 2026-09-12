@@ -25,14 +25,12 @@ def build_settings(
     concurrency = getattr(tuning, "max_concurrency", config.concurrent_requests)
     per_host = getattr(tuning, "max_per_host", config.concurrent_per_host)
     playwright_pages = getattr(tuning, "playwright_max_pages", config.playwright_max_pages)
-    contact = config.contact.strip()
-    contact_uri = f"mailto:{contact}" if "@" in contact and "://" not in contact else contact
     settings: dict[str, object] = {
         # Discovery must always be able to fetch robots.txt and declared
         # sitemaps. The fixed-inventory content phase applies its rules.
         "ROBOTSTXT_OBEY": config.robots_txt_obey if phase == "crawl" else False,
-        "ROBOTSTXT_USER_AGENT": config.user_agent_name,
-        "USER_AGENT": f"{config.user_agent_name}/{config.user_agent_version} (+{contact_uri})",
+        "ROBOTSTXT_USER_AGENT": config.browser_user_agent,
+        "USER_AGENT": config.browser_user_agent,
         "COOKIES_ENABLED": config.cookies_enabled,
         "CONCURRENT_REQUESTS": concurrency,
         "CONCURRENT_REQUESTS_PER_DOMAIN": per_host,

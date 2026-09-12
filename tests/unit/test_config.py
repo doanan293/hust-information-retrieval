@@ -95,6 +95,19 @@ def test_config_loads_complete_runtime_policy(tmp_path: Path) -> None:
     assert config.download_timeout_seconds == 75
 
 
+def test_access_policy_v2_uses_browser_transport_without_robots() -> None:
+    config = CrawlerConfig.load(
+        Path("config/crawler.yaml"),
+        environ={"CRAWLER_CONTACT": "ops@example.org"},
+        hostnames=frozenset({"a.test"}),
+    )
+
+    assert config.access_policy_revision == 2
+    assert "Mozilla/5.0" in config.browser_user_agent
+    assert "Chrome/" in config.browser_user_agent
+    assert config.robots_txt_obey is False
+
+
 def test_environment_contact_overrides_yaml(tmp_path: Path) -> None:
     domains = tmp_path / "domains.txt"
     domains.write_text("example.com\n", encoding="utf-8")

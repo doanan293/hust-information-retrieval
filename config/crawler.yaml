@@ -1,6 +1,8 @@
 contact: "replace-with-operator-contact@example.invalid"
 user_agent_name: "HUSTPublicCrawler"
 user_agent_version: "1.0"
+access_policy_revision: 2
+browser_user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 concurrent_requests: 64
 concurrent_per_host: 2
 playwright_max_pages: 8
@@ -9,7 +11,7 @@ throttle_start_seconds: 0.25
 throttle_max_seconds: 5
 autothrottle_enabled: true
 autothrottle_target_concurrency: 2.0
-robots_txt_obey: true
+robots_txt_obey: false
 cookies_enabled: false
 redirect_max_times: 20
 retry_times: 3

@@ -35,19 +35,19 @@ def test_multi_request_profile_registers_adaptive_middleware(tmp_path: Path) -> 
     assert values["AUTOTHROTTLE_TARGET_CONCURRENCY"] == 2.0
 
 
-def test_content_crawl_obeys_robots_while_discovery_can_fetch_robots(tmp_path: Path) -> None:
+def test_content_crawl_ignores_robots_while_discovery_can_fetch_robots(tmp_path: Path) -> None:
     crawl = build_settings(config(), state_dir=tmp_path / "crawl", phase="crawl")
     discovery = build_settings(config(), state_dir=tmp_path / "discover", phase="discover")
 
-    assert crawl["ROBOTSTXT_OBEY"] is True
+    assert crawl["ROBOTSTXT_OBEY"] is False
     assert discovery["ROBOTSTXT_OBEY"] is False
 
 
-def test_requests_identify_the_crawler_and_operator(tmp_path: Path) -> None:
+def test_requests_use_browser_user_agent_without_contact_suffix(tmp_path: Path) -> None:
     values = build_settings(config(), state_dir=tmp_path / "job", phase="crawl")
 
-    assert values["USER_AGENT"] == "HUSTPublicCrawler/1.0 (+mailto:ops@example.org)"
-    assert values["ROBOTSTXT_USER_AGENT"] == "HUSTPublicCrawler"
+    assert values["USER_AGENT"] == config().browser_user_agent
+    assert values["ROBOTSTXT_USER_AGENT"] == config().browser_user_agent
 
 
 def test_middlewares_register_public_asset_address_and_safe_redirect(tmp_path: Path) -> None:
