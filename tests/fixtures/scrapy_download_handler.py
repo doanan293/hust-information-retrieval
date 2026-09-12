@@ -39,6 +39,41 @@ class StaticDownloadHandler:
                 f.write(f"{request.url}\n")
         url = request.url
 
+        if self.fixture_mode in {"policy_recovery_initial", "policy_recovery_resume"}:
+            user_agent = request.headers.get(b"User-Agent", b"").decode("latin1")
+            if url == "https://ua-gated.test/" and "Mozilla/5.0" not in user_agent:
+                return TextResponse(
+                    url,
+                    status=401,
+                    body=b'<main><h1>Login</h1><form action="/login"><input type="password"></form></main>',
+                    encoding="utf-8",
+                    headers={b"Content-Type": b"text/html"},
+                    request=request,
+                )
+            if url == "https://ua-gated.test/":
+                return TextResponse(
+                    url,
+                    status=200,
+                    body=b"<main><h1>User-Agent recovered</h1><p>Public content</p></main>",
+                    encoding="utf-8",
+                    headers={b"Content-Type": b"text/html"},
+                    request=request,
+                )
+            if url == "https://js-gated.test/":
+                body = (
+                    b"<main><h1>Rendered page</h1><p>Public content</p></main>"
+                    if request.meta.get("playwright")
+                    else b'<div id="app"></div><script src="/app.js"></script>'
+                )
+                return TextResponse(
+                    url,
+                    status=200,
+                    body=body,
+                    encoding="utf-8",
+                    headers={b"Content-Type": b"text/html"},
+                    request=request,
+                )
+
         # generated_graph mode
         if self.fixture_mode == "generated_graph":
             if url == "https://a.test/robots.txt":
@@ -170,7 +205,7 @@ class StaticDownloadHandler:
                     headers={b"Location": b"/robots-public.txt"},
                     request=request,
                 )
-            disallow = b"/about" if self.fixture_mode == "robots_disallow" and url.startswith("https://a.test/") else b""
+            disallow = b"/about" if self.fixture_mode in {"robots_disallow", "policy_recovery_initial"} and url.startswith("https://a.test/") else b""
             return TextResponse(
                 url,
                 status=200,
@@ -285,7 +320,8 @@ class StaticDownloadHandler:
             body = (
                 b'<main><h1>A home</h1>'
                 b'<a href="/article">Article</a>'
-                b'<a href="/report.pdf">Report</a>'
+                + (b'<a href="/about">About</a>' if self.fixture_mode == "policy_recovery_initial" else b"")
+                + b'<a href="/report.pdf">Report</a>'
                 b'<a href="https://b.test/news">B news</a>'
                 b'<img src="/dynamic-image?id=1">'
                 b'</main>'

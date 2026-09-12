@@ -42,7 +42,7 @@ uv run hust-crawl --input docs/domain_active.txt --output data/crawl-all \
 - **`content-only` (default):** Keeps full HTML article content, structure, and rich asset references (`assets` metadata in `articles.jsonl`), but downloads and transfers no recognizable binaries. Ambiguous binary responses are terminated at HTTP headers (`Content-Type`), leaving `files.jsonl` empty and `files/` absent.
 - **`all`:** Discovers and downloads supported semantic assets (images, audio/video media, documents) directly referenced by crawled pages, subject to public network safety checks (safe DNS resolution, private/loopback IP blocking) and storage quotas.
 - **`--reuse-content-from`:** Copies the articles and crawl index from a finished, compatible `content-only` output, then requests only its recorded semantic assets. The source is read-only and the new output is standalone. Asset-host `robots.txt` requests may still occur, but HTML pages and sitemaps are not crawled again. The source must use the same `--input` file contents and must not still be running; the destination path must not already exist.
-- **Resume incompatibility:** Crawl state from older versions using `--assets documents` cannot be resumed and will be rejected. A fresh output directory is required.
+- **Resume compatibility:** Crawl state from older versions using `--assets documents` cannot be resumed and will be rejected. The current access-policy migration can continue an existing unified crawl in place with `--retry-policy-skips`.
 
 ### Input Seeds and Scope Semantics
 
@@ -56,9 +56,10 @@ Crawling is strictly restricted to exact parsed-host equality. Parent domains ne
 
 ### Crawl Policy and Safety Controls
 
-- **Robots-aware fetching:** Re-fetches each target host's `robots.txt` and skips disallowed URLs as `robots_disallowed`, even when they appear in a sitemap.
-- **Public-only access:** Login gates and CAPTCHAs are terminal skips; the crawler never authenticates or attempts to bypass an access challenge.
-- **Operator contact requirements:** Network requests identify themselves as `HUSTPublicCrawler/1.0` and include the operator contact from `CRAWLER_CONTACT`. Placeholder contacts are rejected before a crawl starts.
+- **Robots handling:** The crawl does not apply `Allow`/`Disallow` rules. It may still fetch `robots.txt` to discover `Sitemap` declarations, but a robots rule never prevents a same-host URL from being scheduled.
+- **Browser-compatible access:** Requests use a browser-compatible User-Agent. JavaScript shells and browser-recoverable denials receive one Playwright attempt.
+- **Public-only access:** Login gates and CAPTCHAs are terminal skips; the crawler never authenticates or attempts to solve an access challenge.
+- **Operator contact requirements:** A valid operator contact from `CRAWLER_CONTACT` is still required and recorded in configuration. Placeholder contacts are rejected before a crawl starts.
 - **Faithful Article Extraction:** Fetches and extracts readable HTML content, headings, structured content blocks, semantic HTML, and metadata.
 - **Asset Handling:**
   - In `content-only` mode (default), article asset references are recorded with role and provenance, but no binary files are requested or transferred.
@@ -233,8 +234,15 @@ The crawler supports clean interruption and resume:
 - **Graceful interrupt (Ctrl-C):** Scrapy closes active requests cleanly, saves the request queue to disk, marks the run `interrupted`, and exits with code 130.
 - **Resume:** Run the same command with `--resume`. The crawler rebuilds pending requests from the SQLite index, skipping already-completed URLs without duplicate fetches even if Scrapy job state was interrupted abruptly.
 - **Retry transient failures:** Add `--retry-failed` to a resumed run to retry final network and timeout failures while leaving HTTP errors and policy rejections unchanged: `uv run hust-crawl --input docs/domain_active.txt --output data/crawl --resume --retry-failed`.
+- **Recover an older policy run:** Use `--retry-policy-skips` with `--resume` to migrate the known legacy User-Agent/robots policy and requeue only recoverable policy skips, login classifications, CAPTCHA false positives, transport failures, and zero-content host bootstraps. Existing `extracted` and `file_saved` URLs are preserved and not fetched again:
+
+  ```bash
+  uv run hust-crawl --input docs/domain_active.txt --output data/crawl \
+    --resume --retry-policy-skips
+  ```
+
 - **Retry recoverable truncations:** Add `--retry-truncated` after a crawler policy fix to reclassify and requeue `query_variant_limit` records that are now recognized as content or semantic pagination: `uv run hust-crawl --input docs/domain_active.txt --output data/crawl --resume --retry-truncated`. Other query filters and budget truncations remain skipped.
-- **State isolation:** Existing `data/discovery` or fixed-inventory `data/crawl` state must not be reused with `--resume`; a fresh directory is required.
+- **State isolation:** `--resume` must point to the same crawl output and input inventory; do not resume a discovery output, a different inventory, or an unrelated fixed-inventory run.
 
 ### Completion / Exit Codes
 
@@ -244,6 +252,8 @@ The crawler supports clean interruption and resume:
 - `130`: Interrupted with resumable work remaining.
 - `1`: Internal crawler failure.
 - `2`: Invalid arguments, configuration, or input.
+
+The crawl manifest also contains `host_completion` and `metrics.zero_content_hosts`, so every recursive seed can be checked for extracted coverage without scanning the full URL record file. A host remains `zero_content` when its public content is unavailable under the access policy, is a true login/CAPTCHA gate, redirects outside exact-host scope, or still has a terminal network failure.
 
 ---
 
