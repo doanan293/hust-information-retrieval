@@ -88,6 +88,7 @@ def run_crawl(
     retry_failed: bool = False,
     retry_truncated: bool = False,
     retry_access_gates: bool = False,
+    retry_policy_skips: bool = False,
     reuse_content_from: Path | None = None,
 ) -> int:
     if retry_failed and not resume:
@@ -96,6 +97,8 @@ def run_crawl(
         raise ValueError("--retry-truncated requires --resume")
     if retry_access_gates and not resume:
         raise ValueError("--retry-access-gates requires --resume")
+    if retry_policy_skips and not resume:
+        raise ValueError("--retry-policy-skips requires --resume")
     if reuse_content_from is not None and resume:
         raise ValueError("--reuse-content-from cannot be combined with --resume")
     if reuse_content_from is not None and reuse_content_from.resolve() == output.resolve():
@@ -123,6 +126,7 @@ def run_crawl(
         semantic_config=semantic_cfg,
         runtime_config=runtime_cfg,
         resume=resume,
+        allow_policy_migration=retry_policy_skips,
     )
     try:
         if reuse_content_from is not None:
@@ -163,6 +167,10 @@ def run_crawl(
                 state.requeue_query_variant_truncations()
             if retry_access_gates:
                 state.requeue_access_gates()
+            if retry_policy_skips:
+                state.requeue_policy_skips(seeds.recursive_hostnames)
+                state.requeue_retryable_failures()
+                state.requeue_zero_content_bootstrap(seeds.recursive_hostnames)
             frontier.restore(state.iter_url_records())
             coordinator.restore(state.iter_host_discovery())
             resume_records = tuple(state.iter_pending_scheduled_records())

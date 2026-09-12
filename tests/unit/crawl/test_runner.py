@@ -106,6 +106,7 @@ def run_unified_for_test(
     retry_failed: bool = False,
     retry_truncated: bool = False,
     retry_access_gates: bool = False,
+    retry_policy_skips: bool = False,
 ) -> int:
     urls_file = tmp_path / "seeds.txt"
     urls_file.write_text("https://a.test/article\n", encoding="utf-8")
@@ -129,7 +130,20 @@ def run_unified_for_test(
         retry_failed=retry_failed,
         retry_truncated=retry_truncated,
         retry_access_gates=retry_access_gates,
+        retry_policy_skips=retry_policy_skips,
     )
+
+
+def test_crawl_runner_policy_recovery_is_explicit_and_resumable(monkeypatch, tmp_path: Path) -> None:
+    observed = capture_runner_dependencies(monkeypatch)
+    assert run_unified_for_test(tmp_path) == 0
+
+    observed.clear()
+    assert run_unified_for_test(tmp_path, resume=True, retry_policy_skips=True) == 0
+    assert observed["allow_policy_migration"] is True
+    assert {
+        row["url"] for row in observed["crawl_kwargs"]["resume_records"]
+    } == {"https://a.test/"}
 
 
 def test_crawl_runner_uses_crawl_phase_and_unified_spider(

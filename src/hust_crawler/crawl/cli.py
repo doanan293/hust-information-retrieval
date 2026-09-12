@@ -128,6 +128,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Requeue pages previously skipped as CAPTCHA-blocked while resuming",
     )
+    parser.add_argument(
+        "--retry-policy-skips",
+        action="store_true",
+        default=False,
+        help="Migrate access policy and requeue recoverable policy skips while resuming",
+    )
     return parser
 
 
@@ -154,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.retry_access_gates and not args.resume:
         print("Error: --retry-access-gates requires --resume", file=sys.stderr)
+        return 2
+    if args.retry_policy_skips and not args.resume:
+        print("Error: --retry-policy-skips requires --resume", file=sys.stderr)
         return 2
 
     input_path = Path(args.input)
@@ -208,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             retry_failed=args.retry_failed,
             retry_truncated=args.retry_truncated,
             retry_access_gates=args.retry_access_gates,
+            retry_policy_skips=args.retry_policy_skips,
             reuse_content_from=args.reuse_content_from,
         )
     except (FileExistsError, ValueError) as exc:

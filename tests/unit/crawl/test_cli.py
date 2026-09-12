@@ -41,6 +41,52 @@ def test_crawl_cli_defaults() -> None:
     assert args.reuse_content_from is None
     assert args.retry_truncated is False
     assert args.retry_access_gates is False
+    assert args.retry_policy_skips is False
+
+
+def test_crawl_cli_accepts_retry_policy_skips_with_resume() -> None:
+    args = parse_args([
+        "--input", "seeds.txt",
+        "--output", "data/crawl",
+        "--resume",
+        "--retry-policy-skips",
+    ])
+    assert args.retry_policy_skips is True
+
+
+def test_main_rejects_retry_policy_skips_without_resume(tmp_path: Path, capsys) -> None:
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("a.test\n", encoding="utf-8")
+
+    exit_code = cli.main([
+        "--input", str(seeds),
+        "--output", str(tmp_path / "crawl"),
+        "--retry-policy-skips",
+    ])
+
+    assert exit_code == 2
+    assert "--retry-policy-skips requires --resume" in capsys.readouterr().err
+
+
+def test_main_passes_retry_policy_skips_to_runner(tmp_path: Path, monkeypatch) -> None:
+    seeds = tmp_path / "seeds.txt"
+    seeds.write_text("a.test\n", encoding="utf-8")
+    write_complete_config(tmp_path)
+    observed: dict[str, object] = {}
+
+    def capture_run(**kwargs: object) -> int:
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "run_crawl", capture_run)
+    assert cli.main([
+        "--input", str(seeds),
+        "--output", str(tmp_path / "crawl"),
+        "--config", str(tmp_path / "crawler.yaml"),
+        "--resume",
+        "--retry-policy-skips",
+    ]) == 0
+    assert observed["retry_policy_skips"] is True
 
 
 def test_crawl_cli_accepts_lightweight_content_source() -> None:
