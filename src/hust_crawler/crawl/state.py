@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterator, Literal, TYPE_CHECKING
 from collections.abc import Mapping
+from collections import Counter, defaultdict
 from urllib.parse import urlsplit
 
 from .link_policy import classify_link
@@ -714,6 +715,28 @@ class CrawlState:
                     counts[str(r)] = counts.get(str(r), 0) + 1
         return counts
 
+    def host_completion(self, hostnames: frozenset[str]) -> dict[str, dict[str, object]]:
+        extracted = Counter()
+        terminal_reasons: dict[str, Counter[str]] = defaultdict(Counter)
+        for record in self.iter_url_records():
+            hostname = (urlsplit(str(record.get("url", ""))).hostname or "").lower().rstrip(".")
+            if hostname not in hostnames:
+                continue
+            if record.get("status") in {"extracted", "file_saved"}:
+                extracted[hostname] += 1
+            reason = record.get("reason")
+            if reason and record.get("status") in {"skipped", "failed"}:
+                terminal_reasons[hostname][str(reason)] += 1
+
+        return {
+            hostname: {
+                "status": "complete" if extracted[hostname] else "zero_content",
+                "extracted_pages": extracted[hostname],
+                "terminal_reasons": dict(sorted(terminal_reasons[hostname].items())),
+            }
+            for hostname in sorted(hostnames)
+        }
+
     def upsert_host_discovery(self, record: dict[str, object]) -> None:
         hostname = str(record["hostname"])
         payload = json.dumps(record, ensure_ascii=False)
@@ -821,6 +844,7 @@ class CrawlState:
         *,
         discovery: dict[str, object] | None = None,
         frontier: dict[str, object] | None = None,
+        host_completion: dict[str, dict[str, object]] | None = None,
         public_output: Path | None = None,
     ) -> None:
         finish_data: dict[str, object] = {
@@ -841,6 +865,7 @@ class CrawlState:
         if self.manifest.get("phase") != "discover":
             finish_data["assets"] = self.asset_metrics()
             finish_data["skipped"] = self.skipped_reasons()
+            finish_data["host_completion"] = host_completion or {}
 
         self.manifest.update(finish_data)
         self._write_manifest(self.manifest)

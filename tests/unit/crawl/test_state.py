@@ -212,6 +212,34 @@ def test_requeue_zero_content_bootstrap_only_resets_recoverable_roots(tmp_path: 
     state.close()
 
 
+def test_host_completion_reports_extracted_pages_and_terminal_reasons(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    state.complete_url({"url": "https://a.test/article", "status": "extracted"})
+    state.complete_url(
+        {"url": "https://b.test/", "status": "skipped", "reason": "host_out_of_scope"}
+    )
+    state.complete_url(
+        {"url": "https://b.test/robots.txt", "status": "skipped", "reason": "robots_disallowed"}
+    )
+
+    assert state.host_completion(frozenset({"a.test", "b.test"})) == {
+        "a.test": {
+            "status": "complete",
+            "extracted_pages": 1,
+            "terminal_reasons": {},
+        },
+        "b.test": {
+            "status": "zero_content",
+            "extracted_pages": 0,
+            "terminal_reasons": {
+                "host_out_of_scope": 1,
+                "robots_disallowed": 1,
+            },
+        },
+    }
+    state.close()
+
+
 def test_legacy_semantic_snapshot_drops_values_reclassified_as_runtime() -> None:
     saved = {
         "assets": "content-only",

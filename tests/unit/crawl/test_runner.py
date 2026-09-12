@@ -168,6 +168,16 @@ def test_crawl_runner_uses_crawl_phase_and_unified_spider(
     assert "frontier" in manifest["metrics"]
 
 
+def test_crawl_runner_publishes_host_completion(monkeypatch, tmp_path: Path) -> None:
+    capture_runner_dependencies(monkeypatch)
+    assert run_unified_for_test(tmp_path) == 0
+    manifest = json.loads((tmp_path / "crawl-output/manifest.json").read_text(encoding="utf-8"))
+
+    assert manifest["host_completion"]["a.test"]["status"] == "zero_content"
+    assert manifest["host_completion"]["a.test"]["extracted_pages"] == 0
+    assert manifest["metrics"]["zero_content_hosts"] == ["a.test"]
+
+
 def test_crawl_runner_reuses_articles_and_selects_asset_only_spider(
     monkeypatch, tmp_path: Path
 ) -> None:

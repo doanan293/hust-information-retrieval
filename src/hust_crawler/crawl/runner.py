@@ -258,6 +258,12 @@ def run_crawl(
 
         counts = state.counts()
         failed = counts.get("errors", 0)
+        host_completion = state.host_completion(seeds.recursive_hostnames)
+        zero_content_hosts = sorted(
+            hostname
+            for hostname, summary in host_completion.items()
+            if summary["status"] == "zero_content"
+        )
         truncation_counts = state.reason_counts(TRUNCATION_REASONS)
         truncated = sum(truncation_counts.values())
 
@@ -281,6 +287,7 @@ def run_crawl(
             "peak_queue": peak_queue,
             "stats": stats,
             "frontier": frontier.snapshot(),
+            "zero_content_hosts": zero_content_hosts,
         }
         state.finish(
             status=status,
@@ -290,6 +297,7 @@ def run_crawl(
             truncation=truncation_counts if truncated > 0 else None,
             discovery=coordinator.snapshot(),
             frontier=frontier.snapshot(),
+            host_completion=host_completion,
             public_output=output,
         )
         return exit_code
