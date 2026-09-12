@@ -9,9 +9,10 @@ import time
 from pathlib import Path
 from typing import Any, Iterator, Literal, TYPE_CHECKING
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 from .link_policy import classify_link
-from .recovery import validate_policy_migration
+from .recovery import POLICY_RETRY_REASONS, scheduled_retry, validate_policy_migration
 
 if TYPE_CHECKING:
     from .assets import AssetRole
@@ -597,6 +598,93 @@ class CrawlState:
                     """,
                     (json.dumps(record, ensure_ascii=False), url),
                 )
+            self.connection.execute("COMMIT;")
+        except Exception:
+            self.connection.execute("ROLLBACK;")
+            raise
+        return len(recoverable)
+
+    def requeue_policy_skips(self, recursive_hostnames: frozenset[str]) -> int:
+        rows = self.connection.execute(
+            "SELECT url, payload FROM url_records WHERE completed = 1 AND status = 'skipped';"
+        ).fetchall()
+        recoverable: list[tuple[str, dict[str, object]]] = []
+        for url, payload in rows:
+            record = json.loads(payload)
+            hostname = (urlsplit(str(url)).hostname or "").lower().rstrip(".")
+            if hostname not in recursive_hostnames:
+                continue
+            if record.get("reason") not in POLICY_RETRY_REASONS:
+                continue
+            recoverable.append((str(url), scheduled_retry(record)))
+
+        self.connection.execute("BEGIN IMMEDIATE;")
+        try:
+            for url, record in recoverable:
+                self.connection.execute(
+                    """
+                    UPDATE url_records
+                    SET payload = ?, status = 'scheduled', completed = 0
+                    WHERE url = ? AND status = 'skipped' AND completed = 1;
+                    """,
+                    (json.dumps(record, ensure_ascii=False), url),
+                )
+                self.connection.execute("DELETE FROM errors WHERE url = ?;", (url,))
+            self.connection.execute("COMMIT;")
+        except Exception:
+            self.connection.execute("ROLLBACK;")
+            raise
+        return len(recoverable)
+
+    def requeue_zero_content_bootstrap(self, recursive_hostnames: frozenset[str]) -> int:
+        records = list(self.iter_url_records())
+        extracted_hosts = {
+            (urlsplit(str(record["url"])).hostname or "").lower().rstrip(".")
+            for record in records
+            if record.get("status") in {"extracted", "file_saved"}
+        }
+        by_url = {str(record["url"]): record for record in records}
+        recoverable: list[tuple[str, dict[str, object]]] = []
+        for hostname in sorted(recursive_hostnames - extracted_hosts):
+            root = f"https://{hostname}/"
+            record = by_url.get(root)
+            if record is None:
+                recoverable.append(
+                    (
+                        root,
+                        {
+                            "url": root,
+                            "status": "scheduled",
+                            "seed_type": "recursive",
+                            "frontier_action": "scheduled",
+                            "discovery_source": "seed",
+                            "response_purpose": "page",
+                        },
+                    )
+                )
+            elif record.get("status") == "skipped" and record.get("reason") in POLICY_RETRY_REASONS:
+                recoverable.append((root, scheduled_retry(record)))
+            elif record.get("status") == "failed" and record.get("reason") in {
+                "request_failed",
+                "sitemap_parse_error",
+            }:
+                recoverable.append((root, scheduled_retry(record)))
+
+        self.connection.execute("BEGIN IMMEDIATE;")
+        try:
+            for url, record in recoverable:
+                self.connection.execute(
+                    """
+                    INSERT INTO url_records(url, payload, status, completed)
+                    VALUES (?, ?, 'scheduled', 0)
+                    ON CONFLICT(url) DO UPDATE SET
+                      payload = excluded.payload,
+                      status = 'scheduled',
+                      completed = 0;
+                    """,
+                    (url, json.dumps(record, ensure_ascii=False)),
+                )
+                self.connection.execute("DELETE FROM errors WHERE url = ?;", (url,))
             self.connection.execute("COMMIT;")
         except Exception:
             self.connection.execute("ROLLBACK;")

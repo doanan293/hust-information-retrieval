@@ -156,6 +156,62 @@ def test_resume_policy_migration_requires_explicit_opt_in(tmp_path: Path) -> Non
     resumed_again.close()
 
 
+def test_requeue_policy_skips_preserves_successful_records_and_is_idempotent(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    successful = {
+        "url": "https://a.test/success",
+        "status": "extracted",
+        "title": "Keep me",
+    }
+    state.complete_url(successful, article={"url": successful["url"], "title": "Keep me"})
+    state.complete_url(
+        {"url": "https://a.test/file.pdf", "status": "file_saved"},
+        file={"url": "https://a.test/file.pdf", "path": "files/file.pdf"},
+    )
+    for reason in ("robots_disallowed", "login_required", "captcha_blocked", "access_denied"):
+        url = f"https://a.test/{reason}"
+        state.complete_url(
+            {"url": url, "status": "skipped", "reason": reason},
+            error={"url": url, "error": reason},
+        )
+    state.complete_url(
+        {"url": "https://a.test/not-found", "status": "failed", "reason": "http_404"},
+        error={"url": "https://a.test/not-found", "error": "http_404"},
+    )
+
+    assert state.requeue_policy_skips(frozenset({"a.test"})) == 4
+    pending = {row["url"] for row in state.iter_pending_scheduled_records()}
+    assert pending == {
+        "https://a.test/robots_disallowed",
+        "https://a.test/login_required",
+        "https://a.test/captcha_blocked",
+        "https://a.test/access_denied",
+    }
+    assert state.is_complete("https://a.test/success")
+    assert state.is_complete("https://a.test/file.pdf")
+    article_payload = state.connection.execute(
+        "SELECT payload FROM articles WHERE url = ?",
+        ("https://a.test/success",),
+    ).fetchone()[0]
+    assert json.loads(article_payload) == {"url": "https://a.test/success", "title": "Keep me"}
+    assert state.requeue_policy_skips(frozenset({"a.test"})) == 0
+    state.close()
+
+
+def test_requeue_zero_content_bootstrap_only_resets_recoverable_roots(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    state.complete_url({"url": "https://a.test/", "status": "skipped", "reason": "access_denied"})
+    state.complete_url({"url": "https://b.test/", "status": "extracted"})
+    state.complete_url({"url": "https://c.test/", "status": "skipped", "reason": "host_out_of_scope"})
+
+    assert state.requeue_zero_content_bootstrap(frozenset({"a.test", "b.test", "c.test"})) == 1
+    pending = {row["url"] for row in state.iter_pending_scheduled_records()}
+    assert "https://a.test/" in pending
+    assert "https://b.test/" not in pending
+    assert "https://c.test/" not in pending
+    state.close()
+
+
 def test_legacy_semantic_snapshot_drops_values_reclassified_as_runtime() -> None:
     saved = {
         "assets": "content-only",

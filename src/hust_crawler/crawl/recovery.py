@@ -3,6 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 
+POLICY_RETRY_REASONS = frozenset(
+    {"robots_disallowed", "login_required", "captcha_blocked", "access_denied"}
+)
+
+
 ACCESS_POLICY_SEMANTIC_KEYS = frozenset(
     {
         "access_policy_revision",
@@ -45,3 +50,11 @@ def validate_policy_migration(
             "resume semantic configuration differs outside access policy: "
             + ", ".join(changed)
         )
+
+
+def scheduled_retry(record: Mapping[str, object]) -> dict[str, object]:
+    retry = dict(record)
+    retry.update({"status": "scheduled", "frontier_action": "scheduled"})
+    for key in ("completed", "final_url", "http_status", "reason"):
+        retry.pop(key, None)
+    return retry
