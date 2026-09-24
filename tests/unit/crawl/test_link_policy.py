@@ -21,6 +21,93 @@ def test_link_kinds(url: str, text: str, kind: str) -> None:
     assert classify_link(url, source_url="https://a.test/news", text=text).kind == kind
 
 
+@pytest.mark.parametrize(
+    ("url", "kind", "ordinal", "family_key"),
+    [
+        (
+            "https://a.test/items?facet.topic=ai",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+        (
+            "https://a.test/items?filters[topic]=ai",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+        (
+            "https://a.test/items?filters[page]=whitepaper",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+        (
+            "https://a.test/items?facet.offset=print",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+        (
+            "https://a.test/items?f.start=early",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+        (
+            "https://a.test/browse/author?value=Alice",
+            "search_filter",
+            None,
+            "a.test/browse/author",
+        ),
+        (
+            "https://a.test/items?spc.page=7",
+            "pagination",
+            7,
+            "a.test/items?spc.page={page}",
+        ),
+        (
+            "https://a.test/items?f.topic=ai&spc.page=7",
+            "search_filter",
+            None,
+            "a.test/items",
+        ),
+    ],
+)
+def test_generic_faceted_navigation_query_shapes_are_classified(
+    url: str,
+    kind: str,
+    ordinal: int | None,
+    family_key: str,
+) -> None:
+    link = classify_link(url, source_url="https://a.test/")
+
+    assert (link.kind, link.ordinal, link.family_key) == (
+        kind,
+        ordinal,
+        family_key,
+    )
+
+
+def test_namespaced_non_navigation_id_remains_content() -> None:
+    link = classify_link(
+        "https://a.test/profile?profile.id=42",
+        source_url="https://a.test/",
+    )
+
+    assert (link.kind, link.ordinal, link.family_key) == ("content", None, None)
+
+
+@pytest.mark.parametrize("query_key", ["dir", "orderby", "sortby"])
+def test_generic_sort_query_keys_are_navigation(query_key: str) -> None:
+    link = classify_link(
+        f"https://a.test/products?{query_key}=price",
+        source_url="https://a.test/",
+    )
+
+    assert (link.kind, link.family_key) == ("search_filter", "a.test/products")
+
+
 def test_route_family_preserves_content_ids() -> None:
     assert route_family_key("https://a.test/article/123", "content") is None
     assert route_family_key("https://a.test/view?id=123", "content") is None

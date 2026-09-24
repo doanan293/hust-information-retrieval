@@ -98,6 +98,63 @@ def test_crawl_export_lists_only_successful_urls_in_text_file(tmp_path: Path) ->
     state.close()
 
 
+def test_finish_publishes_only_current_extracted_articles_to_final(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    output = tmp_path / "output"
+    state.complete_url(
+        {"url": "https://a.test/keep", "status": "extracted"},
+        article={
+            "url": "https://a.test/keep",
+            "title": "Keep",
+            "duplicate_of": "https://a.test/stale",
+        },
+    )
+    state.put_article({"url": "https://a.test/stale", "title": "Stale", "text": "Full text"})
+    state.upsert_url(
+        {"url": "https://a.test/stale", "status": "skipped", "reason": "action_auth"}
+    )
+
+    state.finish("complete_with_failures", 3, state.counts(), {}, public_output=output)
+
+    final = output / "final"
+    articles = [json.loads(line) for line in (final / "articles.jsonl").read_text().splitlines()]
+    assert articles == [{"url": "https://a.test/keep", "title": "Keep", "text": "Full text"}]
+    assert (final / "urls.txt").read_text() == "https://a.test/keep\n"
+    summary = json.loads((final / "README.json").read_text())
+    assert summary["article_count"] == summary["url_count"] == 1
+    assert sorted(path.name for path in final.iterdir()) == [
+        "README.json", "articles.jsonl", "urls.txt"
+    ]
+    state.close()
+
+
+def test_finish_refreshes_final_after_resume(tmp_path: Path) -> None:
+    state = open_state(tmp_path)
+    output = tmp_path / "output"
+    state.complete_url(
+        {"url": "https://a.test/first", "status": "extracted"},
+        article={"url": "https://a.test/first"},
+    )
+    state.finish("complete", 0, state.counts(), {}, public_output=output)
+    assert (output / "final/urls.txt").read_text() == "https://a.test/first\n"
+
+    state.complete_url(
+        {"url": "https://a.test/second", "status": "extracted"},
+        article={"url": "https://a.test/second"},
+    )
+    state.finish("complete", 0, state.counts(), {}, public_output=output)
+
+    assert (output / "final/urls.txt").read_text() == (
+        "https://a.test/first\nhttps://a.test/second\n"
+    )
+    assert [
+        json.loads(line)["url"]
+        for line in (output / "final/articles.jsonl").read_text().splitlines()
+    ] == ["https://a.test/first", "https://a.test/second"]
+    assert json.loads((output / "final/README.json").read_text())["article_count"] == 2
+    state.close()
+
+
 def test_resume_rejects_semantic_change_but_accepts_runtime_change(tmp_path: Path) -> None:
     state = open_state(tmp_path)
     state.close()

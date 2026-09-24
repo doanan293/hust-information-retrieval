@@ -4,7 +4,7 @@ from email.utils import parsedate_to_datetime
 import random
 import logging
 from collections.abc import Callable
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from twisted.internet import task
 
@@ -15,6 +15,9 @@ from scrapy.settings.default_settings import RETRY_EXCEPTIONS
 from scrapy.utils.defer import maybe_deferred_to_future
 from scrapy.utils.misc import load_object
 from scrapy.utils.response import response_status_message
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from scrapy_playwright.page import PageMethod
 
 from ..policies.access import classify_access
 from ..policies.network import resolve_public_hostname, validate_public_web_url
@@ -27,10 +30,51 @@ _RETRYABLE_EXCEPTIONS = tuple(
 )
 
 
+def _https_fallback_url(url: str) -> str:
+    parsed = urlsplit(url)
+    netloc = parsed.netloc
+    if parsed.port == 80:
+        userinfo, separator, host_and_port = netloc.rpartition("@")
+        host_and_port = host_and_port.removesuffix(":80")
+        netloc = f"{userinfo}@{host_and_port}" if separator else host_and_port
+    return urlunsplit(parsed._replace(scheme="https", netloc=netloc))
+
+
 def _reactor_clock():
     from twisted.internet import reactor
 
     return reactor
+
+
+async def _wait_for_stable_body(page) -> None:
+    document_id = None
+    stable_samples = 0
+    for _ in range(120):
+        try:
+            snapshot = await page.evaluate(
+                """() => ({
+                    document_id: performance.timeOrigin,
+                    text_length: (document.body?.innerText || '').trim().length,
+                })"""
+            )
+        except PlaywrightError:
+            document_id = None
+            stable_samples = 0
+        else:
+            current_id = snapshot.get("document_id")
+            if snapshot.get("text_length", 0) >= 40:
+                if current_id == document_id:
+                    stable_samples += 1
+                else:
+                    document_id = current_id
+                    stable_samples = 1
+                if stable_samples >= 8:
+                    return
+            else:
+                document_id = current_id
+                stable_samples = 0
+        await page.wait_for_timeout(250)
+    raise PlaywrightTimeoutError("rendered body did not stabilize within 30 seconds")
 
 
 class SafeRedirectMiddleware:
@@ -184,6 +228,25 @@ class PoliteRetryMiddleware:
     async def process_exception(self, request: Request, exception):
         if not isinstance(exception, _RETRYABLE_EXCEPTIONS):
             return None
+        if urlsplit(request.url).scheme == "http" and not request.meta.get(
+            "https_fallback"
+        ):
+            meta = dict(request.meta)
+            meta["https_fallback"] = True
+            fallback = request.replace(
+                url=_https_fallback_url(request.url),
+                meta=meta,
+                dont_filter=True,
+            )
+            logging.getLogger(__name__).info(
+                "https fallback | host=%s | reason=%s | url=%s",
+                urlsplit(request.url).hostname,
+                type(exception).__name__,
+                request.url[:240],
+            )
+            if self.stats is not None:
+                self.stats.inc_value("hust/retry/https_fallback")
+            return fallback
         return await self._retry(request, None, type(exception).__name__)
 
 
@@ -230,6 +293,9 @@ class PlaywrightFallbackMiddleware:
             "playwright": True,
             "rendered": True,
             "download_slot": f"playwright:{hostname}",
+            "playwright_page_methods": {
+                "stable_body": PageMethod(_wait_for_stable_body),
+            },
         })
         return request.replace(meta=meta, dont_filter=True)
 

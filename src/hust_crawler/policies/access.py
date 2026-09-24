@@ -83,6 +83,20 @@ def _is_embedded_in_public_form(
     return len(" ".join(public_text.split())) >= 40
 
 
+def _visible_body_text(html: str) -> str:
+    try:
+        root = lxml_html.fromstring(html or "<html></html>")
+    except (TypeError, ValueError):
+        return ""
+    bodies = root.xpath("//body")
+    container = bodies[0] if bodies else root
+    values = container.xpath(
+        ".//text()[not(ancestor::script) and not(ancestor::style) "
+        "and not(ancestor::noscript) and not(ancestor::template)]"
+    )
+    return " ".join(" ".join(str(value).split()) for value in values if str(value).strip())
+
+
 def _has_page_level_captcha(html: str, *, rate_limited: bool = False) -> bool:
     try:
         root = lxml_html.fromstring(html or "<html></html>")
@@ -120,8 +134,7 @@ def classify_access(*, status: int, url: str, html: str, rendered: bool) -> Acce
         return AccessDecision("access_denied", not rendered, f"http_{status}")
     if has_login_gate:
         return AccessDecision("login_required", False, "access_gate")
-    visible = re.sub(r"<script\b[^>]*>.*?</script>", "", lowered, flags=re.S)
-    text = re.sub(r"<[^>]+>", " ", visible).strip()
+    text = _visible_body_text(html)
     shell = len(text) < 40 and "<script" in lowered
     if shell and not rendered:
         return AccessDecision("public", True, "html_shell")

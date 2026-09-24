@@ -80,6 +80,111 @@ def test_root_path_query_variants_stop_at_twenty() -> None:
     )
 
 
+@pytest.mark.parametrize("query_key", ["f.subject", "facet.topic", "filters[topic]"])
+def test_namespaced_filter_variants_are_bounded_even_when_link_looks_like_content(
+    query_key: str,
+) -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(max_query_variants_per_path=2),
+    )
+
+    decisions = [
+        frontier.consider(
+            candidate(
+                f"https://a.test/entities/person/123?{query_key}={value}",
+                link_kind="content",
+            )
+        )
+        for value in ("one", "two", "three")
+    ]
+
+    assert [decision.action for decision in decisions] == [
+        "schedule",
+        "schedule",
+        "reject",
+    ]
+    assert decisions[-1].reason == "query_variant_limit"
+
+
+def test_browse_path_query_variants_are_bounded() -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(max_query_variants_per_path=2),
+    )
+
+    decisions = [
+        frontier.consider(
+            candidate(
+                f"https://a.test/browse/author?value={value}",
+                link_kind="content",
+            )
+        )
+        for value in ("one", "two", "three")
+    ]
+
+    assert [decision.action for decision in decisions] == [
+        "schedule",
+        "schedule",
+        "reject",
+    ]
+    assert decisions[-1].reason == "query_variant_limit"
+
+
+@pytest.mark.parametrize("path", ["archive", "archives"])
+def test_archive_path_query_variants_are_bounded(path: str) -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(max_query_variants_per_path=2),
+    )
+
+    decisions = [
+        frontier.consider(
+            candidate(
+                f"https://a.test/{path}/topic?value={value}",
+                link_kind="content",
+            )
+        )
+        for value in ("one", "two", "three")
+    ]
+
+    assert [decision.action for decision in decisions] == [
+        "schedule",
+        "schedule",
+        "reject",
+    ]
+    assert decisions[-1].reason == "query_variant_limit"
+
+
+def test_namespaced_pagination_uses_one_branch() -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()), CrawlOptions()
+    )
+
+    first = frontier._pagination_branch("https://a.test/items?spc.page=1&tag=ai")
+    second = frontier._pagination_branch("https://a.test/items?spc.page=2&tag=ai")
+
+    assert first == second == ("a.test", "/items", "tag=ai")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://a.test/items?filters[page]=whitepaper",
+        "https://a.test/items?facet.offset=print",
+        "https://a.test/items?f.start=early",
+    ],
+)
+def test_facet_namespace_with_pagination_like_field_is_not_a_pagination_branch(
+    url: str,
+) -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()), CrawlOptions()
+    )
+
+    assert frontier._pagination_branch(url) is None
+
+
 def test_semantic_pagination_is_not_limited_to_twenty_query_variants() -> None:
     frontier = FrontierPolicy(
         SeedSet(frozenset({"a.test"}), (), ()), CrawlOptions()
@@ -415,6 +520,65 @@ def test_restore_ignores_non_scheduled() -> None:
     frontier = FrontierPolicy(SeedSet(frozenset({"a.test"}), (), ()), CrawlOptions())
     frontier.restore(records)
     assert frontier.snapshot()["total_scheduled"] == 1
+
+
+def test_restore_rebuilds_namespaced_filter_variant_budget() -> None:
+    records = [
+        {
+            "url": f"https://a.test/items?facet.topic={value}",
+            "frontier_action": "scheduled",
+            "discovery_source": "html_link",
+            "link_kind": "content",
+        }
+        for value in ("one", "two")
+    ]
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(max_query_variants_per_path=2),
+    )
+
+    frontier.restore(records)
+    decision = frontier.consider(
+        candidate("https://a.test/items?facet.topic=three", link_kind="content")
+    )
+
+    assert (decision.action, decision.reason) == ("reject", "query_variant_limit")
+
+
+def test_restore_does_not_charge_wordpress_content_ids_to_query_budget() -> None:
+    records = [
+        {
+            "url": f"https://a.test/?p={post_id}",
+            "frontier_action": "scheduled",
+            "discovery_source": "html_link",
+            "link_kind": "content",
+        }
+        for post_id in (101, 102)
+    ]
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(max_query_variants_per_path=2),
+    )
+
+    frontier.restore(records)
+
+    assert frontier.consider(candidate("https://a.test/?sort=one")).action == "schedule"
+    assert frontier.consider(candidate("https://a.test/?sort=two")).action == "schedule"
+
+
+def test_closed_pagination_branch_does_not_reject_wordpress_content_id() -> None:
+    frontier = FrontierPolicy(
+        SeedSet(frozenset({"a.test"}), (), ()),
+        CrawlOptions(pagination_empty_pages=1),
+    )
+    frontier.observe_pagination("https://a.test/?p=1", new_content_count=0)
+
+    decision = frontier.consider(
+        candidate("https://a.test/?p=33214", link_kind="content")
+    )
+
+    assert decision.action == "schedule"
+    assert decision.priority == 500
 
 
 def test_snapshot_structure() -> None:

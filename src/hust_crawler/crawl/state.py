@@ -819,6 +819,76 @@ class CrawlState:
     def export(self, output: Path) -> None:
         self.export_crawl(output)
 
+    def export_final(self, output: Path) -> None:
+        final = output / "final"
+        final.mkdir(parents=True, exist_ok=True)
+        articles_path = final / "articles.jsonl"
+        urls_path = final / "urls.txt"
+        tmp_articles = final / "articles.jsonl.tmp"
+        tmp_urls = final / "urls.txt.tmp"
+
+        cursor = self.connection.execute(
+            """
+            SELECT a.url, a.payload
+            FROM articles AS a
+            JOIN url_records AS r ON r.url = a.url
+            WHERE r.status = 'extracted'
+            ORDER BY a.url;
+            """
+        )
+        count = 0
+        owner_text: dict[str, str] = {}
+        with tmp_articles.open("w", encoding="utf-8") as articles_file, tmp_urls.open(
+            "w", encoding="utf-8"
+        ) as urls_file:
+            for url, payload in cursor:
+                if '"duplicate_of"' in payload:
+                    article = json.loads(payload)
+                    owner_url = article.get("duplicate_of")
+                    if owner_url:
+                        owner_status = self.connection.execute(
+                            "SELECT status FROM url_records WHERE url = ?", (owner_url,)
+                        ).fetchone()
+                        if owner_status is None or owner_status[0] != "extracted":
+                            if owner_url not in owner_text:
+                                owner_row = self.connection.execute(
+                                    "SELECT payload FROM articles WHERE url = ?", (owner_url,)
+                                ).fetchone()
+                                if owner_row is None:
+                                    raise ValueError(f"missing duplicate owner article: {owner_url}")
+                                text = json.loads(owner_row[0]).get("text")
+                                if text is None:
+                                    raise ValueError(f"duplicate owner has no text: {owner_url}")
+                                owner_text[owner_url] = str(text)
+                            article["text"] = owner_text[owner_url]
+                            article.pop("duplicate_of", None)
+                            payload = json.dumps(article, ensure_ascii=False)
+                articles_file.write(f"{payload}\n")
+                urls_file.write(f"{url}\n")
+                count += 1
+        os.replace(tmp_articles, articles_path)
+        os.replace(tmp_urls, urls_path)
+
+        summary = {
+            "description": "Bộ dữ liệu bài viết đã lọc theo URL crawl thành công",
+            "source_crawl_finished_at_utc": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ", time.gmtime(self.manifest["finished_at"])
+            ),
+            "article_count": count,
+            "url_count": count,
+            "files": {
+                "articles.jsonl": "Mỗi dòng là một bài viết JSON; chỉ gồm URL trong urls.txt",
+                "urls.txt": "Danh sách URL tương ứng, một URL mỗi dòng",
+            },
+            "crawl_failed_url_count": self.manifest["counts"].get("url_status_failed", 0),
+            "note": "Các URL crawl thất bại không nằm trong bộ dữ liệu này.",
+        }
+        tmp_summary = final / "README.json.tmp"
+        tmp_summary.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        os.replace(tmp_summary, final / "README.json")
+
     def asset_metrics(self) -> dict[str, dict[str, int]]:
         from .assets import classify_asset
 
@@ -890,6 +960,8 @@ class CrawlState:
                 encoding="utf-8",
             )
             os.replace(tmp, pub_manifest)
+            if self.manifest.get("phase") == "crawl":
+                self.export_final(public_output)
 
     def close(self) -> None:
         try:

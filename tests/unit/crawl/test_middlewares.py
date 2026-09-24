@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from scrapy.exceptions import IgnoreRequest, StopDownload
 from scrapy.http import Headers, HtmlResponse, Request, Response
+from twisted.internet.error import ConnectError
 
 import hust_crawler.crawl.middlewares as middlewares
 from hust_crawler.crawl.middlewares import (
@@ -177,6 +178,63 @@ def test_exhausted_transport_exception_does_not_reschedule() -> None:
     assert asyncio.run(middleware.process_exception(request, OSError("boom"))) is None
 
 
+def test_http_transport_failure_falls_back_to_https_before_retrying() -> None:
+    clock = task.Clock()
+    middleware = PoliteRetryMiddleware(
+        clock=clock,
+        max_retries=3,
+        base_delay=2,
+        jitter=lambda delay: delay,
+    )
+    request = Request(
+        "http://a.test:80/article?id=42",
+        meta={
+            "input_url": "http://a.test:80/article?id=42",
+            "retry_times": 2,
+        },
+    )
+
+    fallback = asyncio.run(
+        middleware.process_exception(request, ConnectError("No route to host"))
+    )
+
+    assert fallback.url == "https://a.test/article?id=42"
+    assert fallback.meta["input_url"] == "http://a.test:80/article?id=42"
+    assert fallback.meta["https_fallback"] is True
+    assert fallback.meta["retry_times"] == 2
+    assert fallback.dont_filter is True
+    assert clock.getDelayedCalls() == []
+
+
+def test_https_fallback_failure_uses_the_ordinary_retry_path() -> None:
+    clock = task.Clock()
+    middleware = PoliteRetryMiddleware(
+        clock=clock,
+        max_retries=3,
+        base_delay=2,
+        jitter=lambda delay: delay,
+    )
+    request = Request(
+        "https://a.test/article?id=42",
+        meta={"https_fallback": True},
+    )
+
+    async def exercise():
+        pending = asyncio.create_task(
+            middleware.process_exception(request, ConnectError("Connection refused"))
+        )
+        await asyncio.sleep(0)
+        clock.advance(2.0)
+        return await pending
+
+    retry = asyncio.run(exercise())
+
+    assert retry.url == "https://a.test/article?id=42"
+    assert retry.meta["https_fallback"] is True
+    assert retry.meta["retry_times"] == 1
+    assert retry.dont_filter is True
+
+
 def test_policy_rejection_is_not_retried() -> None:
     clock = task.Clock()
     middleware = PoliteRetryMiddleware(
@@ -212,6 +270,38 @@ def test_html_shell_is_rescheduled_once_with_playwright() -> None:
     assert rerender.meta["rendered"] is True
     assert rerender.meta["download_slot"] == "playwright:a.test"
     assert rerender.dont_filter is True
+    page_methods = list(rerender.meta["playwright_page_methods"].values())
+    assert len(page_methods) == 1
+    wait_method = page_methods[0]
+    assert callable(wait_method.method)
+
+    class ReloadingPage:
+        def __init__(self) -> None:
+            self.snapshots = [
+                {"document_id": 1, "text_length": 100},
+                {"document_id": 1, "text_length": 100},
+                *(
+                    {"document_id": 2, "text_length": 100}
+                    for _ in range(8)
+                ),
+            ]
+            self.evaluate_calls = 0
+            self.waits: list[int] = []
+
+        async def evaluate(self, expression: str) -> dict[str, int]:
+            assert "performance.timeOrigin" in expression
+            index = min(self.evaluate_calls, len(self.snapshots) - 1)
+            self.evaluate_calls += 1
+            return self.snapshots[index]
+
+        async def wait_for_timeout(self, milliseconds: int) -> None:
+            self.waits.append(milliseconds)
+
+    page = ReloadingPage()
+    asyncio.run(wait_method.method(page))
+
+    assert page.evaluate_calls == 10
+    assert page.waits == [250] * 9
 
 
 def test_unrendered_http_denial_gets_one_browser_attempt() -> None:

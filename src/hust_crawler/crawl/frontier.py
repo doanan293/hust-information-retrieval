@@ -2,50 +2,16 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Iterable, Literal, Mapping
+from typing import Iterable, Literal, Mapping, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from hust_crawler.policies.url import canonicalize_url, classify_frontier_trap
 
 from .assets import AssetGroup, AssetRole
-from .link_policy import LinkKind
+from .link_policy import LinkKind, is_navigation_path, query_key_kind
 from .options import CrawlOptions
 from .seeds import SeedMode, SeedSet
 from .state import FamilyObservation, RouteFamilyState
-
-_PAGINATION_QUERY_KEYS = frozenset({"page", "p", "paged", "pg", "offset", "start", "skip"})
-_FILTER_QUERY_KEYS = frozenset(
-    {
-        "sort",
-        "order",
-        "filter",
-        "dir",
-        "orderby",
-        "sortby",
-        "category",
-        "tag",
-        "view",
-        "display",
-        "lang",
-        "tab",
-    }
-)
-_NAVIGATION_PATH_SEGMENTS = frozenset(
-    {
-        "list",
-        "listing",
-        "all",
-        "browse",
-        "category",
-        "categories",
-        "tag",
-        "tags",
-        "archive",
-        "archives",
-        "search",
-        "find",
-    }
-)
 
 DiscoverySource = Literal["seed", "sitemap", "html_link"]
 Purpose = Literal["robots", "sitemap", "page", "asset"]
@@ -175,7 +141,7 @@ class FrontierPolicy:
     def _pagination_branch(self, url: str) -> tuple[str, str, str] | None:
         parsed = urlsplit(url)
         pairs = parse_qsl(parsed.query, keep_blank_values=True)
-        has_page_query = any(k.lower() in _PAGINATION_QUERY_KEYS for k, _ in pairs)
+        has_page_query = any(query_key_kind(k) == "pagination" for k, _ in pairs)
         segments = [s for s in parsed.path.split("/") if s]
         has_page_path = (
             len(segments) >= 2
@@ -192,7 +158,7 @@ class FrontierPolicy:
             norm_path = parsed.path.rstrip("/") or "/"
 
         filtered_query = urlencode(
-            sorted([(k, v) for k, v in pairs if k.lower() not in _PAGINATION_QUERY_KEYS])
+            sorted([(k, v) for k, v in pairs if query_key_kind(k) != "pagination"])
         )
         hostname = (parsed.hostname or "").lower().rstrip(".")
         return (hostname, norm_path, filtered_query)
@@ -215,22 +181,28 @@ class FrontierPolicy:
     def page_role(
         self, url: str, link_kind: LinkKind | None = None
     ) -> Literal["content", "navigation"]:
-        if link_kind == "content":
-            return "content"
         if link_kind == "pagination":
             return "navigation"
         parsed = urlsplit(url)
         pairs = parse_qsl(parsed.query, keep_blank_values=True)
-        if any(k.lower() in _PAGINATION_QUERY_KEYS for k, _ in pairs):
+        query_kinds = {query_key_kind(k) for k, _ in pairs}
+        if "filter" in query_kinds:
             return "navigation"
-        if any(k.lower() in _FILTER_QUERY_KEYS for k, _ in pairs):
+        if "pagination" in query_kinds:
+            is_wordpress_content_id = link_kind == "content" and all(
+                query_key_kind(key) != "pagination" or key.casefold() == "p"
+                for key, _ in pairs
+            )
+            if not is_wordpress_content_id:
+                return "navigation"
+        if is_navigation_path(parsed.path):
             return "navigation"
+        if link_kind == "content":
+            return "content"
         path = parsed.path.rstrip("/")
         if not path:
             return "content"
         segments = [s.lower() for s in path.split("/") if s]
-        if any(s in _NAVIGATION_PATH_SEGMENTS for s in segments):
-            return "navigation"
         if len(segments) >= 2 and segments[-2] in {"page", "p", "pages"} and segments[-1].isdigit():
             return "navigation"
         return "content"
@@ -283,8 +255,10 @@ class FrontierPolicy:
                     self.stats[f"frontier/host/{hostname}/reject/{trap}"] += 1
                     return FrontierDecision("reject", canonical, trap, 0)
 
+        role = self.page_role(canonical, candidate.link_kind)
+
         # Reject a closed pagination branch
-        if candidate.purpose != "asset":
+        if candidate.purpose != "asset" and role == "navigation":
             branch = self._pagination_branch(canonical)
             if branch and branch in self._closed_branches:
                 self.stats["frontier/reject/pagination_closed"] += 1
@@ -304,11 +278,10 @@ class FrontierPolicy:
         # Enforce query variants only when source is html_link, page role is navigation,
         # and parsed.query is non-empty
         parsed = urlsplit(canonical)
-        role = self.page_role(canonical, candidate.link_kind)
         charges_query_variant_budget = (
             candidate.purpose != "asset"
             and candidate.discovery_source == "html_link"
-            and candidate.link_kind not in {"content", "pagination"}
+            and candidate.link_kind != "pagination"
             and role == "navigation"
             and parsed.query
         )
@@ -360,10 +333,11 @@ class FrontierPolicy:
             self._host_scheduled[hostname] += 1
             parsed = urlsplit(canonical)
             disc_src = record.get("discovery_source")
+            link_kind = cast(LinkKind | None, record.get("link_kind"))
             if (
                 disc_src == "html_link"
-                and record.get("link_kind") not in {"content", "pagination"}
-                and self.page_role(canonical) == "navigation"
+                and link_kind != "pagination"
+                and self.page_role(canonical, link_kind) == "navigation"
                 and parsed.query
             ):
                 path_key = (hostname, parsed.path)

@@ -21,10 +21,29 @@ PAGINATION_QUERY_KEYS: Final[frozenset[str]] = frozenset(
     {"page", "p", "paged", "pg", "offset", "start", "skip"}
 )
 PRESENTATION_QUERY_KEYS: Final[frozenset[str]] = frozenset(
-    {"sort", "order", "filter", "view", "display", "lang", "tab"}
+    {
+        "sort",
+        "order",
+        "dir",
+        "orderby",
+        "sortby",
+        "filter",
+        "category",
+        "tag",
+        "view",
+        "display",
+        "lang",
+        "tab",
+    }
 )
 SEARCH_QUERY_KEYS: Final[frozenset[str]] = frozenset(
     {"q", "query", "keyword", "search"}
+)
+FACET_QUERY_NAMESPACES: Final[frozenset[str]] = frozenset(
+    {"f", "filter", "filters", "facet", "facets", "refine", "refinement", "taxonomy"}
+)
+FACET_QUERY_KEYS: Final[frozenset[str]] = frozenset(
+    {"filter", "filters", "facet", "facets", "refine", "refinement", "taxonomy"}
 )
 VOLATILE_QUERY_KEYS: Final[frozenset[str]] = frozenset(
     {"session", "sid", "nonce", "token", "cache", "cb", "timestamp", "fbclid", "gclid"}
@@ -82,6 +101,22 @@ ACTION_AUTH_TEXT_TOKENS: Final[frozenset[str]] = frozenset(
 ARCHIVE_PATH_CONTEXTS: Final[frozenset[str]] = frozenset(
     {"archive", "archives", "calendar", "date", "year", "month"}
 )
+NAVIGATION_PATH_SEGMENTS: Final[frozenset[str]] = frozenset(
+    {
+        "all",
+        "archive",
+        "archives",
+        "browse",
+        "categories",
+        "category",
+        "find",
+        "list",
+        "listing",
+        "search",
+        "tag",
+        "tags",
+    }
+)
 
 _PATH_PAGINATION_RE: Final[re.Pattern[str]] = re.compile(
     r"/(?:page|p)/(\d+)(?:/)?$", re.IGNORECASE
@@ -101,6 +136,40 @@ class ClassifiedLink:
     reason: str | None
 
 
+def query_key_kind(key: str) -> Literal["pagination", "filter"] | None:
+    """Classify common exact and namespaced navigation query keys."""
+    lowered = key.casefold()
+    if lowered in PAGINATION_QUERY_KEYS:
+        return "pagination"
+    if (
+        lowered in SEARCH_QUERY_KEYS
+        or lowered in PRESENTATION_QUERY_KEYS
+        or lowered in FACET_QUERY_KEYS
+    ):
+        return "filter"
+
+    tokens = re.findall(r"[a-z0-9]+", lowered)
+    if len(tokens) > 1 and tokens[0] in FACET_QUERY_NAMESPACES:
+        return "filter"
+    if len(tokens) > 1 and tokens[-1] in PAGINATION_QUERY_KEYS:
+        return "pagination"
+    return None
+
+
+def is_strong_filter_key(key: str) -> bool:
+    """Return whether a selector should outrank pagination classification."""
+    lowered = key.casefold()
+    if lowered in SEARCH_QUERY_KEYS or lowered in FACET_QUERY_KEYS:
+        return True
+    tokens = re.findall(r"[a-z0-9]+", lowered)
+    return len(tokens) > 1 and tokens[0] in FACET_QUERY_NAMESPACES
+
+
+def is_navigation_path(path: str) -> bool:
+    segments = {segment.casefold() for segment in path.split("/") if segment}
+    return bool(segments & NAVIGATION_PATH_SEGMENTS)
+
+
 def _classify_navigation(
     normalized: str, text: str, rel: tuple[str, ...]
 ) -> tuple[LinkKind, int | None]:
@@ -117,25 +186,24 @@ def _classify_navigation(
     if any(token in text for token in ACTION_AUTH_TEXT_TOKENS):
         return "action_auth", None
 
-    # 2. Search / Filter check (query keys or search path)
-    if any(k in SEARCH_QUERY_KEYS for k in query_dict) or "search" in segments:
-        return "search_filter", None
-    if any(k in PRESENTATION_QUERY_KEYS for k in query_dict):
-        return "search_filter", None
-
-    # 3. Calendar / Archive check (date pattern under archive context)
+    # 2. Calendar / Archive check (date pattern under archive context)
     has_archive_context = any(ctx in segments for ctx in ARCHIVE_PATH_CONTEXTS) or any(
         ctx in query_dict for ctx in ARCHIVE_PATH_CONTEXTS
     )
     if has_archive_context and _CALENDAR_DATE_RE.search(path):
         return "calendar_archive", None
 
-    # 4. Pagination check
+    # Namespaced/high-cardinality selectors outrank pagination so a facet
+    # page cannot evade the query-variant budget by appending a page key.
+    if any(is_strong_filter_key(k) for k in query_dict):
+        return "search_filter", None
+
+    # 3. Pagination check
     # Check query keys
-    for k in ("page", "p", "paged", "pg", "offset", "start", "skip"):
-        if k in query_dict:
-            val = query_dict[k]
-            if k == "p":
+    for raw_key, val in query_pairs:
+        key = raw_key.casefold()
+        if query_key_kind(key) == "pagination":
+            if key == "p":
                 if "shortlink" in rel_tokens:
                     return "content", None
                 label = " ".join(text.split())
@@ -152,6 +220,15 @@ def _classify_navigation(
     # Check rel="next"
     if "next" in rel_tokens:
         return "pagination", None
+
+    # 4. Search / Filter check
+    if any(query_key_kind(k) == "filter" for k in query_dict):
+        return "search_filter", None
+
+    # Generic collection/listing routes are navigation even when their
+    # site-specific selector uses an otherwise opaque key such as `value`.
+    if is_navigation_path(path):
+        return "search_filter", None
 
     # Default to content
     return "content", None
@@ -177,7 +254,7 @@ def route_family_key(url: str, kind: LinkKind) -> str | None:
         new_query_pairs = []
         for k, v in query_pairs:
             k_lower = k.lower()
-            if k_lower in PAGINATION_QUERY_KEYS:
+            if query_key_kind(k_lower) == "pagination":
                 has_page_query = True
                 new_query_pairs.append((k, "{page}"))
             elif k_lower not in VOLATILE_QUERY_KEYS and not k_lower.startswith("utm_"):

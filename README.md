@@ -99,6 +99,16 @@ Hard caps act as safety circuit breakers rather than the primary stop mechanism.
 - `errors.jsonl`: Final failures and rejections with URL and reason.
 - `manifest.json`: Public crawl manifest published atomically, including status, timings, counts, resource metrics, `assets` breakdown, route family diagnostics, and skipped reasons (`"phase": "crawl"`).
 - `state/`: Resumable crawl state SQLite database (`index.sqlite3`), lock, and Scrapy job state.
+- `final/`: Automatically refreshed when a crawl run ends. Use `final/articles.jsonl`
+  and `final/urls.txt` as the matching article dataset; `final/README.json` records
+  the article count and source crawl time. Only articles whose current URL status
+  is `extracted` are included. If a duplicate points to an excluded article,
+  its text is included directly so `final/` can be used on its own. The
+  top-level files remain the raw crawl output and resume data; crawl logs
+  stay outside `final/`.
+- `logs/`: Optional operator logs from prior runs. The crawler does not create
+  log files in the output root unless shell output is redirected there.
+- `archive/`: Manual snapshots kept for recovery; not used by `--resume`.
 
 ---
 

@@ -40,6 +40,36 @@ def test_public_shell_requests_browser_once() -> None:
     assert not classify_access(status=200, url="https://example.com/", html=html, rendered=True).use_playwright
 
 
+def test_public_shell_ignores_head_noscript_and_formatting_whitespace() -> None:
+    html = """
+        <html>
+          <head>
+            <title>Mạng lưới Doanh nghiệp và Cựu Sinh viên Đại học Bách khoa Hà Nội</title>
+          </head>
+          <body>
+            <noscript>
+              Your web browser must have JavaScript enabled for this application.
+            </noscript>
+            <div id="live-chat"></div>
+            <script src="/js/index.js"></script>
+          </body>
+        </html>
+    """
+
+    decision = classify_access(
+        status=200,
+        url="https://connect.hust.edu.vn/",
+        html=html,
+        rendered=False,
+    )
+
+    assert (decision.outcome, decision.reason, decision.use_playwright) == (
+        "public",
+        "html_shell",
+        True,
+    )
+
+
 def test_public_article_that_mentions_captcha_is_not_treated_as_a_challenge() -> None:
     html = "<article><h1>CAPTCHA accessibility research</h1><p>Public report.</p></article>"
 
