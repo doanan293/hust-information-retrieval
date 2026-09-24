@@ -1,0 +1,11 @@
+.idea/
+target/
+out/
+index/
+output/
+*.class
+dependency-reduced-pom.xml
+
+# VnCoreNLP - tai bang scripts/setup-vncorenlp.sh
+lib/
+models/

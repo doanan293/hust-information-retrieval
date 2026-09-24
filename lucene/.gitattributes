@@ -1,0 +1,4 @@
+# Giữ script shell luôn dùng LF kể cả khi checkout trên Windows (Git Bash mới chạy được)
+*.sh text eol=lf
+# Script PowerShell dùng CRLF
+*.ps1 text eol=crlf

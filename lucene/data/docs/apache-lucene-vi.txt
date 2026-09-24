@@ -1,0 +1,15 @@
+Apache Lucene là một thư viện tìm kiếm toàn văn hiệu năng cao, viết hoàn toàn
+bằng ngôn ngữ Java. Lucene không phải là máy chủ và không có giao diện người
+dùng; lập trình viên nhúng nó vào ứng dụng của mình.
+
+Lucene xây dựng chỉ mục ngược từ một tập tài liệu. Mỗi tài liệu gồm nhiều trường,
+mỗi trường được bộ phân tích tách thành một chuỗi từ tố. Khi truy vấn, Lucene tra
+các từ tố trong chỉ mục ngược và xếp hạng tài liệu khớp bằng mô hình tương đồng,
+mặc định là BM25.
+
+Với tiếng Việt, thách thức lớn nhất là tách từ, vì một từ có thể gồm nhiều âm
+tiết viết rời. Có thể tích hợp bộ tách từ như VnCoreNLP để lập chỉ mục theo đơn
+vị từ, nhờ đó truy vấn chính xác hơn so với tách theo âm tiết.
+
+Lucene là lõi bên dưới của Apache Solr và Elasticsearch, hai nền tảng tìm kiếm
+phân tán phổ biến.
