@@ -23,9 +23,10 @@ import java.util.Map;
  * Dau vao : 1 thu muc van ban (.txt/.pdf...) + truy van.
  * Dau ra  : chi muc Lucene (thu muc index/) + ket qua tim kiem (console + output/results.txt).
  *
- * Hai kieu chay (--mode):
+ * Ba kieu chay (--mode):
  *   interactive : nhap lan luot tung truy van tu console, hien ket qua ngay (mac dinh).
  *   batch       : doc tat ca truy van tu file --queries.
+ *   segment     : nhap 1 cau tu console, in ket qua TACH TU (VnCoreNLP) - khong dung index.
  *
  * Analyzer (--analyzer): mac dinh "vietnamese" (tach TU bang VnCoreNLP).
  *   Can chay 1 lan:  bash scripts/setup-vncorenlp.sh
@@ -34,6 +35,7 @@ import java.util.Map;
  * Vi du:
  *   java -jar target/lucene-search.jar                              # interactive, analyzer vietnamese
  *   java -jar target/lucene-search.jar --mode batch --queries data/queries-vi.txt
+ *   java -jar target/lucene-search.jar --mode segment                # xem ket qua tach tu
  *   java -jar target/lucene-search.jar --analyzer standard          # khong dung VnCoreNLP
  *   java -jar target/lucene-search.jar --skip-index                 # dung lai chi muc co san
  */
@@ -52,8 +54,9 @@ public final class Main {
         String anName  = opt.getOrDefault("analyzer", "vietnamese").toLowerCase(Locale.ROOT);
         Path vnHome    = Path.of(opt.getOrDefault("vn-home", "."));
         String mode    = opt.getOrDefault("mode", "interactive").toLowerCase(Locale.ROOT);
-        boolean batch       = mode.startsWith("b") || opt.containsKey("batch");
-        boolean interactive = !batch;
+        boolean segment     = mode.startsWith("seg") || opt.containsKey("segment");
+        boolean batch       = !segment && (mode.startsWith("b") || opt.containsKey("batch"));
+        boolean interactive = !segment && !batch;
         boolean skipIndex   = opt.containsKey("skip-index");
 
         try (Analyzer analyzer = buildAnalyzer(anName, vnHome)) {
@@ -61,17 +64,25 @@ public final class Main {
                     : analyzer instanceof EnglishAnalyzer ? "english" : "standard";
 
             System.out.println("== Cau hinh ==");
-            System.out.println("  mode     : " + (interactive ? "interactive" : "batch"));
+            System.out.println("  mode     : " + (segment ? "segment" : interactive ? "interactive" : "batch"));
+            System.out.println("  analyzer : " + effective
+                    + (effective.equals("vietnamese") ? " (vn-home: " + vnHome.toAbsolutePath() + ")" : "")
+                    + (effective.equals(anName) ? "" : "  [yeu cau: " + anName + "]"));
+
+            if (segment) {
+                System.out.println();
+                System.out.println("== Tach tu ==");
+                SegmentRunner.run(analyzer);
+                return;
+            }
+
             System.out.println("  docs     : " + docsDir.toAbsolutePath());
             if (!interactive) {
                 System.out.println("  queries  : " + queries.toAbsolutePath());
             }
             System.out.println("  index    : " + indexDir.toAbsolutePath());
             System.out.println("  output   : " + outFile.toAbsolutePath());
-            System.out.println("  analyzer : " + effective
-                    + (effective.equals("vietnamese") ? " (vn-home: " + vnHome.toAbsolutePath() + ")" : "")
-                    + (effective.equals(anName) ? "" : "  [yeu cau: " + anName + "]")
-                    + " | top-K: " + topK);
+            System.out.println("  top-K    : " + topK);
             System.out.println();
 
             // 1) + 2) Nap van ban va tao chi muc (co the bo qua bang --skip-index)
