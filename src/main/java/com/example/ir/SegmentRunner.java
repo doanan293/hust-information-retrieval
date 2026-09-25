@@ -6,6 +6,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.List;
 
 /**
@@ -37,6 +38,11 @@ public final class SegmentRunner {
                 if (line.isEmpty()) continue;
                 if (line.equals(":q") || line.equals(":quit") || line.equals("exit")) break;
 
+                // Chuan hoa NFC: VnCoreNLP tach sai neu input o dang NFD (ky tu goc +
+                // dau ket hop rieng, hay gap khi dan tu web/PDF/mot so nguon tren Linux)
+                // - vd "công nghệ" (NFD) bi tach thanh 2 tu rieng "công", "nghệ" thay vi
+                // gop dung thanh 1 tu ghep "công_nghệ".
+                line = Normalizer.normalize(line, Normalizer.Form.NFC);
                 List<String> words = va.segment(line);
                 if (words.isEmpty()) {
                     System.out.println("  (khong tach duoc tu)");
