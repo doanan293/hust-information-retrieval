@@ -46,6 +46,11 @@ final class VietnameseAnalyzer extends Analyzer {
         this.segmenter = segmenter;
     }
 
+    /** Ket qua tach TU tho (truoc lowercase / bo tu dung / bo dau), dung cho che do "segment". */
+    List<String> segment(String text) {
+        return segmenter.segment(text);
+    }
+
     @Override
     protected TokenStreamComponents createComponents(String fieldName) {
         Tokenizer source = new VnWordTokenizer(segmenter);

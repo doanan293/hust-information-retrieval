@@ -39,7 +39,7 @@ Bản thân chương trình Java chạy bình thường trên Windows. Chỉ kh�
 - **Tô màu từ khoá**: chỉ bật khi terminal chắc chắn hỗ trợ ANSI (Windows Terminal, VS Code, ConEmu/Cmder). `cmd.exe` cổ điển → không tô màu, thay vào đó bọc `«...»` như trong file. Đặt biến môi trường `NO_COLOR=1` để tắt hẳn màu.
 - File `output/results.txt` luôn là UTF-8 và luôn dùng `«...»`, không phụ thuộc terminal.
 
-Chương trình có **2 kiểu chạy** qua tham số `--mode`:
+Chương trình có **3 kiểu chạy** qua tham số `--mode`:
 
 ### Kiểu 1 — interactive: nhập từng truy vấn ở console (mặc định)
 
@@ -59,11 +59,35 @@ java -jar target/lucene-search.jar --mode batch --queries data/queries-vi.txt   
 
 Đọc lần lượt mọi dòng trong file `--queries`, in kết quả từng truy vấn và ghi tất cả vào `output/results.txt`.
 
+### Kiểu 3 — segment: xem kết quả tách từ (không cần chỉ mục)
+
+```bash
+java -jar target/lucene-search.jar --mode segment
+```
+
+Chế độ debug/kiểm tra riêng cho bước **tách từ tiếng Việt** (VnCoreNLP), tách biệt hẳn khỏi việc lập chỉ mục và tìm kiếm — không đọc `--docs`, không lập `index/`, không ghi `output/results.txt`. Hữu ích khi muốn biết VnCoreNLP tách một câu thành những từ nào *trước khi* các bước sau (hạ chữ thường, bỏ từ dừng, bỏ dấu) xử lý tiếp.
+
+Chương trình hiện dấu nhắc `cau>`. Gõ một câu, Enter, xem ngay danh sách từ đã tách (nối âm tiết bằng `_`); lặp lại. Thoát bằng `:q` hoặc `Ctrl+D`.
+
+```
+cau> công nghệ thông tin
+  So tu: 1
+   1. công_nghệ_thông_tin
+  => công_nghệ_thông_tin
+
+cau> trí tuệ nhân tạo
+  So tu: 1
+   1. trí_tuệ_nhân_tạo
+  => trí_tuệ_nhân_tạo
+```
+
+Chỉ dùng được với `--analyzer vietnamese` (mặc định) — báo lỗi và không tách nếu chọn `standard`/`english`. Cần đã cài VnCoreNLP (`bash scripts/setup-vncorenlp.sh`), nếu không phần "Analyzer tiếng Việt" phía dưới sẽ tự lùi về `standard` và mode `segment` không hoạt động.
+
 ### Các tham số chung
 
 | Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
-| `--mode` | `interactive` | `interactive` \| `batch` |
+| `--mode` | `interactive` | `interactive` \| `batch` \| `segment` |
 | `--docs` | `data/docs` | thư mục văn bản đầu vào |
 | `--queries` | `data/queries.txt` | file truy vấn (chỉ dùng ở mode batch) |
 | `--index` | `index` | thư mục chứa chỉ mục Lucene |

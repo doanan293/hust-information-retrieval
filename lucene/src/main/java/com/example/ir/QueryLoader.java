@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,7 +16,19 @@ import java.util.List;
  */
 public final class QueryLoader {
 
-    public record Query(String id, String text) {}
+    /**
+     * text duoc chuan hoa ve Unicode NFC (dung 1 ky tu dung san cho moi nguyen am co
+     * dau, vd "ô" thay vi "o" + dau moc rieng). Ly do: van ban go/dan tren Linux hay
+     * ra dang NFD (ky tu goc + dau ket hop rieng); ASCIIFoldingFilter chi bo duoc dau
+     * cua ky tu NFC nen truy van NFD se KHONG khop tai liệu (da duoc luu/tach tu o
+     * dang NFC) -> 0 ket qua du go dung tu. Chuan hoa tai day de moi noi tao Query
+     * (batch lan interactive) deu duoc bao ve nhu nhau.
+     */
+    public record Query(String id, String text) {
+        public Query {
+            text = Normalizer.normalize(text, Normalizer.Form.NFC);
+        }
+    }
 
     private QueryLoader() {}
 

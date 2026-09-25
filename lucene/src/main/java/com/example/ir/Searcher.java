@@ -20,6 +20,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.similarities.ClassicSimilarity;
 import org.apache.lucene.search.highlight.Highlighter;
 import org.apache.lucene.search.highlight.InvalidTokenOffsetsException;
 import org.apache.lucene.search.highlight.QueryScorer;
@@ -37,8 +38,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /** Chay truy van tren chi muc theo 2 kieu: batch (tu file) va interactive (nhap tay). */
@@ -96,6 +99,8 @@ public final class Searcher {
              BufferedWriter out = Files.newBufferedWriter(outFile, StandardCharsets.UTF_8)) {
 
             IndexSearcher searcher = new IndexSearcher(reader);
+            IndexSearcher tfidfSearcher = new IndexSearcher(reader);
+            tfidfSearcher.setSimilarity(new ClassicSimilarity());
             StoredFields storedFields = searcher.storedFields();
             QueryParser parser = newParser(analyzer);
             Consumer<String> sink = teeSink(out);
@@ -106,7 +111,7 @@ public final class Searcher {
             sink.accept("");
 
             for (QueryLoader.Query q : queries) {
-                executeAndFormat(searcher, reader, storedFields, analyzer, parser, q, topK, sink);
+                executeAndFormat(searcher, tfidfSearcher, reader, storedFields, analyzer, parser, q, topK, sink);
             }
         }
         System.out.println();
@@ -125,6 +130,8 @@ public final class Searcher {
              BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
 
             IndexSearcher searcher = new IndexSearcher(reader);
+            IndexSearcher tfidfSearcher = new IndexSearcher(reader);
+            tfidfSearcher.setSimilarity(new ClassicSimilarity());
             StoredFields storedFields = searcher.storedFields();
             QueryParser parser = newParser(analyzer);
             Consumer<String> sink = teeSink(out);
@@ -148,7 +155,7 @@ public final class Searcher {
                 if (line.equals(":q") || line.equals(":quit") || line.equals("exit")) break;
 
                 QueryLoader.Query q = new QueryLoader.Query("Q" + (++n), line);
-                executeAndFormat(searcher, reader, storedFields, analyzer, parser, q, topK, sink);
+                executeAndFormat(searcher, tfidfSearcher, reader, storedFields, analyzer, parser, q, topK, sink);
             }
             sink.accept("");
             sink.accept("# Ket thuc phien: " + n + " truy van.");
@@ -216,6 +223,26 @@ public final class Searcher {
         return bb.build();
     }
 
+    /**
+     * Truy van "thuan" cho tf-idf: OR tung TU duoc tach ra (khong PhraseQuery, khong boost),
+     * dung cong thuc mac dinh cua Lucene (tf x idf x fieldNorm cho tung tu, cong don).
+     */
+    private static Query buildPlainQuery(Analyzer analyzer, String text) throws IOException {
+        List<String> words = analyzeToTokens(analyzer, text);
+        if (words.isEmpty()) {
+            return new MatchNoDocsQuery("khong con tu khoa");
+        }
+        java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>(words);
+        if (unique.size() == 1) {
+            return new TermQuery(new Term(DEFAULT_FIELD, unique.iterator().next()));
+        }
+        BooleanQuery.Builder bb = new BooleanQuery.Builder();
+        for (String w : unique) {
+            bb.add(new TermQuery(new Term(DEFAULT_FIELD, w)), BooleanClause.Occur.SHOULD);
+        }
+        return bb.build();
+    }
+
     /** Tach text bang analyzer, chi lay TU (bo qua am tiet type=SYLLABLE va dau cau). */
     private static List<String> analyzeToTokens(Analyzer analyzer, String text) throws IOException {
         List<String> out = new ArrayList<>();
@@ -255,9 +282,9 @@ public final class Searcher {
     }
 
     /** Parse + tim kiem 1 truy van, xuat ket qua kem doan trich chua tu khoa. */
-    private static void executeAndFormat(IndexSearcher searcher, IndexReader reader, StoredFields storedFields,
-                                         Analyzer analyzer, QueryParser parser, QueryLoader.Query q,
-                                         int topK, Consumer<String> sink) throws IOException {
+    private static void executeAndFormat(IndexSearcher searcher, IndexSearcher tfidfSearcher, IndexReader reader,
+                                         StoredFields storedFields, Analyzer analyzer, QueryParser parser,
+                                         QueryLoader.Query q, int topK, Consumer<String> sink) throws IOException {
         sink.accept("==================================================");
         sink.accept("Truy van " + q.id() + ": " + q.text());
 
@@ -307,14 +334,47 @@ public final class Searcher {
             return;
         }
 
+        // tf-idf: cong thuc mac dinh cua Lucene (ClassicSimilarity) tren CHINH cac tu
+        // duoc tach ra tu truy van (OR, khong boost cum/tu ghep nhu luceneQuery dung de
+        // xep hang) - khong can lap chi muc lai vi norm duoc luu chung cho moi similarity.
+        Query plainQuery = buildPlainQuery(analyzer, raw);
+
         Highlighter highlighter = buildHighlighter(luceneQuery, reader);
+        Set<Integer> shown = new HashSet<>();
         int rank = 0;
         for (ScoreDoc sd : hits.scoreDocs) {
             Document d = storedFields.document(sd.doc);
             rank++;
-            sink.accept(String.format("  %2d. score=%.4f  id=%s", rank, sd.score, d.get("id")));
+            shown.add(sd.doc);
+            double tfidf = tfidfSearcher.explain(plainQuery, sd.doc).getValue().doubleValue();
+            sink.accept(String.format("  %2d. score=%.4f  tf-idf=%.4f  id=%s", rank, sd.score, tfidf, d.get("id")));
             sink.accept("      file: " + d.get("path"));
             sink.accept("      " + kwic(highlighter, analyzer, d.get("content")));
+        }
+
+        // luceneQuery (cum/tu ghep, dung de xep hang o tren) chat hon plainQuery (OR tung
+        // tu). Nen mot so tai lieu KHONG khop luceneQuery van co the chua rieng le vai tu
+        // khoa -> van tinh duoc tf-idf > 0. Liet ke rieng de nguoi dung thay het, khong bi
+        // "an" chi vi khong khop cum chinh xac.
+        if (!(plainQuery instanceof MatchNoDocsQuery)) {
+            TopDocs plainHits = tfidfSearcher.search(plainQuery, Math.max(topK, reader.numDocs()));
+            List<ScoreDoc> extra = new ArrayList<>();
+            for (ScoreDoc sd : plainHits.scoreDocs) {
+                if (!shown.contains(sd.doc) && extra.size() < topK) {
+                    extra.add(sd);
+                }
+            }
+            if (!extra.isEmpty()) {
+                sink.accept("  -- Khong khop cum/tu ghep chinh xac, nhung co tu khoa rieng le (chi co tf-idf) --");
+                int r2 = 0;
+                for (ScoreDoc sd : extra) {
+                    Document d = storedFields.document(sd.doc);
+                    r2++;
+                    sink.accept(String.format("  %2d. tf-idf=%.4f  id=%s", r2, sd.score, d.get("id")));
+                    sink.accept("      file: " + d.get("path"));
+                    sink.accept("      " + kwic(highlighter, analyzer, d.get("content")));
+                }
+            }
         }
         sink.accept("");
     }

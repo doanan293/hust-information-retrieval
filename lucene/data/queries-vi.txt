@@ -2,13 +2,6 @@
 # Câu "trơn" (không có toán tử) tự được hiểu là MỘT cụm — không cần ngoặc kép.
 # Muốn điều khiển tay: dùng AND / OR / NOT / "ngoặc kép".
 
-trí tuệ nhân tạo
-học máy
-xử lý ngôn ngữ tự nhiên
-tách từ
-chỉ mục ngược
-đồng bằng sông Cửu Long
-biến đổi khí hậu
-năng lượng tái tạo
-phở OR "bánh mì"
-"học máy" AND "trí tuệ nhân tạo"
+công nghệ thông tin
+cong nghe thong tin
+công nghệ thong tin
